@@ -28,6 +28,16 @@ Spring Boot REST API에서 요청 하나마다 `traceId`를 부여하고, 요청
 
 성공 응답과 실패 응답 모두 같은 `traceId`를 공유하게 하여, PM/운영자/개발자가 특정 요청 하나를 추적할 수 있는 구조를 이해한다.
 
+이 프로젝트는 단순 monitoring이 아니라 observability의 3대축을 한 요청 단위로 연결하는 것을 목표로 한다.
+
+```text
+Metrics = 숫자로 상태를 본다. 요청 수, 처리 시간, 에러 수.
+Logs    = 사건 기록을 본다. traceId가 붙은 request start/end 로그.
+Traces  = 요청 하나를 따라간다. X-Trace-Id로 응답, 로그, metric 상황을 연결한다.
+```
+
+Monitoring은 "문제가 있다"를 알려주고, observability는 "왜 문제가 생겼는지"를 추론하게 해준다.
+
 ## Mermaid Flowchart
 
 ```mermaid
@@ -53,6 +63,9 @@ flowchart TB
 - Java 21
 - Virtual Thread
 - Spring Boot REST API
+- Actuator
+- Micrometer
+- Prometheus endpoint
 - `HandlerInterceptor`
 - `preHandle`
 - `afterCompletion`
@@ -61,6 +74,63 @@ flowchart TB
 - request logging
 - elapsed time
 - ErrorResponse traceId
+- custom metrics
+- metrics / logs / traces correlation
+
+## Observability Axes
+
+### 1. Metrics
+
+Metrics are exposed through Actuator and Prometheus format.
+
+```http
+GET /actuator/metrics/practice.api.requests
+GET /actuator/metrics/practice.api.request.duration
+GET /actuator/metrics/practice.api.errors
+GET /actuator/prometheus
+```
+
+Custom metrics:
+
+```text
+practice.api.requests
+= traced API request count
+
+practice.api.request.duration
+= traced API request elapsed time
+
+practice.api.errors
+= traced API error response count
+```
+
+### 2. Logs
+
+Every `/api/**` request writes start/end logs with the same traceId.
+
+```text
+request start traceId=demo-trace-001 method=POST uri=/api/chat thread=...
+request end traceId=demo-trace-001 method=POST uri=/api/chat status=200 outcome=SUCCESS elapsedMs=...
+```
+
+The logging pattern also prints the MDC traceId:
+
+```text
+INFO [traceId=demo-trace-001] ...
+```
+
+### 3. Traces
+
+This project uses a lightweight manual traceId practice.
+
+```text
+Client sends X-Trace-Id
+→ TraceIdInterceptor stores it in TraceContext and MDC
+→ Controller/Service can read the same traceId
+→ Response header and response body include the traceId
+→ Logs contain the same traceId
+```
+
+This is not a full distributed tracing system yet. Later, this can be extended with Micrometer Tracing, OpenTelemetry, Zipkin, Jaeger, or Grafana Tempo.
 
 ## Core Files
 
@@ -79,6 +149,14 @@ public void afterCompletion(HttpServletRequest request, HttpServletResponse resp
 ```
 
 After request processing ends, this method logs status code and elapsed time.
+
+It also records request metrics:
+
+```text
+practice.api.requests
+practice.api.request.duration
+practice.api.errors
+```
 
 ### `TraceContext.java`
 
@@ -130,6 +208,15 @@ return new ErrorResponse(
 This means success and failure responses can be connected to the same request log.
 
 ## Main APIs
+
+### Observability Guide API
+
+```http
+GET /api/observability/guide
+X-Trace-Id: demo-trace-guide-001
+```
+
+This endpoint returns how to check metrics, logs, and traces in this project.
 
 ### Chat API
 
@@ -216,6 +303,28 @@ request start traceId=demo-trace-001 method=POST uri=/api/chat thread=...
 request end traceId=demo-trace-001 method=POST uri=/api/chat status=200 elapsedMs=... thread=...
 ```
 
+Check metrics:
+
+```powershell
+Invoke-RestMethod -Uri "http://localhost:8080/actuator/metrics/practice.api.requests" -Method Get
+Invoke-RestMethod -Uri "http://localhost:8080/actuator/metrics/practice.api.request.duration" -Method Get
+Invoke-RestMethod -Uri "http://localhost:8080/actuator/metrics/practice.api.errors" -Method Get
+```
+
+Check Prometheus output:
+
+```powershell
+Invoke-RestMethod -Uri "http://localhost:8080/actuator/prometheus" -Method Get
+```
+
+Look for:
+
+```text
+practice_api_requests_total
+practice_api_request_duration_seconds
+practice_api_errors_total
+```
+
 ## PM Study Notes
 
 Observability is important because real incidents are not solved by knowing only that the server failed.
@@ -230,4 +339,4 @@ PMs and architects should ask:
 
 ## One-Line Summary
 
-This project practices request-level observability by adding traceId, request start/end logs, elapsed time, and ErrorResponse traceId to a Spring Boot REST API.
+This project practices API observability by connecting metrics, logs, and traceId-based traces so one request can be diagnosed from response to console logs and Actuator metrics.

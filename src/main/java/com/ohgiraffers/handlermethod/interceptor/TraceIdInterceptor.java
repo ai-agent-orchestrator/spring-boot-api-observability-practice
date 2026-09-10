@@ -1,13 +1,18 @@
 package com.ohgiraffers.handlermethod.interceptor;
 
 import com.ohgiraffers.handlermethod.support.TraceContext;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
+import java.util.concurrent.TimeUnit;
 import java.util.UUID;
 
 @Component
@@ -16,6 +21,13 @@ public class TraceIdInterceptor implements HandlerInterceptor {
     private static final Logger log = LoggerFactory.getLogger(TraceIdInterceptor.class);
     private static final String TRACE_ID_HEADER = "X-Trace-Id";
     private static final String START_TIME_ATTRIBUTE = "startTime";
+    private static final String TRACE_ID_MDC_KEY = "traceId";
+
+    private final MeterRegistry meterRegistry;
+
+    public TraceIdInterceptor(MeterRegistry meterRegistry) {
+        this.meterRegistry = meterRegistry;
+    }
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
@@ -23,6 +35,7 @@ public class TraceIdInterceptor implements HandlerInterceptor {
         long startTime = System.currentTimeMillis();
 
         TraceContext.setTraceId(traceId);
+        MDC.put(TRACE_ID_MDC_KEY, traceId);
         request.setAttribute(START_TIME_ATTRIBUTE, startTime);
         response.setHeader(TRACE_ID_HEADER, traceId);
 
@@ -39,16 +52,30 @@ public class TraceIdInterceptor implements HandlerInterceptor {
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) {
         long elapsedMs = elapsedMs(request);
         String traceId = TraceContext.currentTraceId();
+        String status = String.valueOf(response.getStatus());
+        String outcome = response.getStatus() >= 400 || ex != null ? "ERROR" : "SUCCESS";
 
-        log.info("request end traceId={} method={} uri={} status={} elapsedMs={} thread={}",
+        recordMetrics(request, status, outcome, elapsedMs);
+
+        log.info("request end traceId={} method={} uri={} status={} outcome={} elapsedMs={} thread={}",
                 traceId,
                 request.getMethod(),
                 request.getRequestURI(),
-                response.getStatus(),
+                status,
+                outcome,
                 elapsedMs,
                 Thread.currentThread());
 
+        if (ex != null) {
+            log.warn("request exception traceId={} method={} uri={} exception={}",
+                    traceId,
+                    request.getMethod(),
+                    request.getRequestURI(),
+                    ex.getClass().getSimpleName());
+        }
+
         TraceContext.clear();
+        MDC.remove(TRACE_ID_MDC_KEY);
     }
 
     private String resolveTraceId(HttpServletRequest request) {
@@ -69,5 +96,38 @@ public class TraceIdInterceptor implements HandlerInterceptor {
         }
 
         return -1;
+    }
+
+    private void recordMetrics(HttpServletRequest request, String status, String outcome, long elapsedMs) {
+        String method = request.getMethod();
+        String uri = request.getRequestURI();
+
+        Counter.builder("practice.api.requests")
+                .description("Total number of traced API requests")
+                .tag("method", method)
+                .tag("uri", uri)
+                .tag("status", status)
+                .tag("outcome", outcome)
+                .register(meterRegistry)
+                .increment();
+
+        Timer.builder("practice.api.request.duration")
+                .description("Traced API request duration")
+                .tag("method", method)
+                .tag("uri", uri)
+                .tag("status", status)
+                .tag("outcome", outcome)
+                .register(meterRegistry)
+                .record(Math.max(elapsedMs, 0), TimeUnit.MILLISECONDS);
+
+        if ("ERROR".equals(outcome)) {
+            Counter.builder("practice.api.errors")
+                    .description("Total number of traced API error responses")
+                    .tag("method", method)
+                    .tag("uri", uri)
+                    .tag("status", status)
+                    .register(meterRegistry)
+                    .increment();
+        }
     }
 }
