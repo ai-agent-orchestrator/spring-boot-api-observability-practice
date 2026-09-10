@@ -1,5 +1,19 @@
 # Spring Boot API Observability Practice
 
+## Project Focus
+
+This project focuses on checking all three core pillars of observability: **Logs, Metrics, and Traces**.
+
+The goal is not just to run an API server, but to observe one request from multiple angles:
+
+```text
+Logs    = What happened during the request?
+Metrics = How many requests happened, how long did they take, and how many failed?
+Traces  = Which request is this, and can the same traceId be followed through response, logs, and metrics?
+```
+
+By connecting these three signals, this project practices how to read a running server and infer why a problem happened.
+
 ## Why This Project Exists
 
 This project is a small Spring Boot practice project for understanding request-level observability.
