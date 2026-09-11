@@ -7,13 +7,20 @@ This branch is a Postman-based JPA N+1 experiment inside the Spring Boot API obs
 This is the key flow observed in this experiment:
 
 ```text
-1. PracticeChatLog is queried first.
-2. PracticeUser is not loaded together because the association is LAZY.
+1. ChatLog list is queried first.
+   select * from practice_chat_log
+
+2. Five ChatLog objects are loaded into memory.
+   But user is LAZY, so PracticeUser is not loaded yet.
+
 3. During DTO conversion, userName is needed.
-4. The code calls chatLog.getUser().getName().
-5. Hibernate then loads the User for each ChatLog.
-6. If there are N ChatLogs, User SELECT also happens N times.
-7. That becomes N+1.
+   chatLog.getUser().getName()
+
+4. At that moment, Hibernate loads each ChatLog's User from DB one by one.
+   select * from practice_user where id=?
+   select * from practice_user where id=?
+   select * from practice_user where id=?
+   ...
 ```
 
 In this experiment:
