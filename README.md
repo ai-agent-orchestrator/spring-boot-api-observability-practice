@@ -1,8 +1,99 @@
-# JPA Transaction Practice
+# JPA Transaction and N+1 Practice
 
 This branch is a Postman-based JPA experiment inside the Spring Boot API observability project.
 
-The point is not to repeat generic JPA notes. The point is to prove one practical mistake:
+The point is not to repeat generic JPA notes. The point is to prove practical mistakes with Postman, traceId logs, and Hibernate SQL logs.
+
+## N+1 Practice
+
+This experiment checks a common JPA performance problem:
+
+```text
+The API response can look normal,
+but Hibernate may be running repeated SELECT queries behind the response.
+```
+
+Practice APIs:
+
+```text
+POST /api/n-plus-one-practice/sample-data
+GET  /api/n-plus-one-practice/bad
+GET  /api/n-plus-one-practice/good
+```
+
+### Postman Flow
+
+#### 1. Create Sample Data
+
+```http
+POST http://localhost:8080/api/n-plus-one-practice/sample-data
+X-Trace-Id: n-plus-one-sample-001
+```
+
+This creates:
+
+```text
+5 PracticeUser rows
+5 PracticeChatLog rows
+Each chat log points to one user with @ManyToOne(fetch = LAZY)
+```
+
+#### 2. Bad Query
+
+```http
+GET http://localhost:8080/api/n-plus-one-practice/bad
+X-Trace-Id: n-plus-one-bad-001
+```
+
+What this does:
+
+```text
+1. practiceChatLogRepository.findAll()
+2. Response DTO calls chatLog.getUser().getName()
+3. LAZY user is accessed one by one
+4. Hibernate can run repeated SELECT queries
+```
+
+Expected observation:
+
+```text
+Postman response looks normal.
+Hibernate SQL log shows chat_log SELECT + repeated user SELECT queries.
+```
+
+#### 3. Good Query
+
+```http
+GET http://localhost:8080/api/n-plus-one-practice/good
+X-Trace-Id: n-plus-one-good-001
+```
+
+What this does:
+
+```text
+1. practiceChatLogRepository.findAllWithUser()
+2. JPQL join fetch loads PracticeChatLog and PracticeUser together
+3. Response DTO can read userName without repeated user SELECT queries
+```
+
+Expected observation:
+
+```text
+Postman response looks similar to /bad.
+Hibernate SQL log shows one join query instead of repeated user SELECT queries.
+```
+
+Key lesson:
+
+```text
+Postman confirms the API response.
+Hibernate SQL logs reveal the hidden DB query cost.
+N+1 is dangerous because the API can look correct while SQL quietly explodes.
+```
+
+## JPA Transaction Practice
+
+This experiment proves another practical mistake:
 
 ```text
 Changing an Entity object in Java is not the same as updating the DB row.
