@@ -25,6 +25,7 @@ The important observation is:
 → the response body looks normal
 → Hibernate first loads chat logs
 → then LAZY user access triggers repeated user SELECT queries
+→ ChatLog list SELECT 1 time + User SELECT N times
 
 /good
 → the response body looks similar
