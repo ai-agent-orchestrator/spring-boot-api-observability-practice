@@ -213,6 +213,200 @@ What changed in the metrics?
 Can I follow the same traceId?
 ```
 
+## JPA Transaction Practice
+
+This branch adds a small JPA experiment for understanding `@Transactional`, Persistence Context, and Dirty Checking.
+
+The goal is to prove this with Postman:
+
+```text
+Changing an Entity object does not always mean the DB row is updated.
+Dirty Checking works when the Entity is managed inside a transaction.
+```
+
+Practice APIs:
+
+```text
+POST  /api/transaction-practice/menus
+GET   /api/transaction-practice/menus/{id}
+PATCH /api/transaction-practice/menus/{id}/bad
+PATCH /api/transaction-practice/menus/{id}/good
+```
+
+### Postman Experiment Result
+
+#### 1. Create Menu
+
+```http
+POST http://localhost:8080/api/transaction-practice/menus
+Content-Type: application/json
+X-Trace-Id: jpa-practice-create-001
+```
+
+Body:
+
+```json
+{
+  "name": "original-menu",
+  "price": 1000
+}
+```
+
+Result:
+
+```json
+{
+  "id": 1,
+  "name": "original-menu",
+  "price": 1000,
+  "message": "created by repository.save()",
+  "traceId": "jpa-practice-create-001"
+}
+```
+
+Console observation:
+
+```text
+Hibernate insert into practice_menu
+```
+
+#### 2. Bad Update Without Service Transaction
+
+```http
+PATCH http://localhost:8080/api/transaction-practice/menus/1/bad
+Content-Type: application/json
+X-Trace-Id: jpa-practice-bad-001
+```
+
+Body:
+
+```json
+{
+  "name": "bad-change"
+}
+```
+
+Result:
+
+```json
+{
+  "id": 1,
+  "name": "bad-change",
+  "price": 1000,
+  "message": "BAD: response object changed, but DB will not be updated by Dirty Checking.",
+  "traceId": "jpa-practice-bad-001"
+}
+```
+
+Then check the DB value again:
+
+```http
+GET http://localhost:8080/api/transaction-practice/menus/1
+X-Trace-Id: jpa-practice-get-after-bad-001
+```
+
+Result:
+
+```json
+{
+  "id": 1,
+  "name": "original-menu",
+  "price": 1000,
+  "message": "current database value",
+  "traceId": "jpa-practice-get-after-bad-001"
+}
+```
+
+Observation:
+
+```text
+The response object showed "bad-change",
+but the database value stayed "original-menu".
+
+Console log showed SELECT only.
+No UPDATE SQL was executed.
+```
+
+#### 3. Good Update Inside `@Transactional`
+
+```http
+PATCH http://localhost:8080/api/transaction-practice/menus/1/good
+Content-Type: application/json
+X-Trace-Id: jpa-practice-good-001
+```
+
+Body:
+
+```json
+{
+  "name": "good-change"
+}
+```
+
+Result:
+
+```json
+{
+  "id": 1,
+  "name": "good-change",
+  "price": 1000,
+  "message": "GOOD: changed inside @Transactional. Dirty Checking will update DB.",
+  "traceId": "jpa-practice-good-001"
+}
+```
+
+Then check the DB value again:
+
+```http
+GET http://localhost:8080/api/transaction-practice/menus/1
+X-Trace-Id: jpa-practice-get-after-good-001
+```
+
+Result:
+
+```json
+{
+  "id": 1,
+  "name": "good-change",
+  "price": 1000,
+  "message": "current database value",
+  "traceId": "jpa-practice-get-after-good-001"
+}
+```
+
+Observation:
+
+```text
+The database value changed to "good-change".
+
+Console log showed SELECT and UPDATE.
+Dirty Checking worked because the Entity was managed inside @Transactional.
+```
+
+### What This Proves
+
+```text
+Repository.save()
+= creates or stores an Entity through JPA.
+
+@Transactional
+= defines the business transaction boundary.
+
+Persistence Context
+= manages Entity state inside that boundary.
+
+Dirty Checking
+= compares managed Entity changes and sends UPDATE SQL at flush/commit time.
+```
+
+The practical rule:
+
+```text
+For update logic, load the Entity inside a Service @Transactional method,
+change the managed Entity,
+and let Dirty Checking update the DB.
+```
+
 ## How To Run
 
 ```powershell
