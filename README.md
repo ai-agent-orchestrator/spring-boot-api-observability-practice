@@ -215,16 +215,27 @@ Can I follow the same traceId?
 
 ## JPA Transaction Practice
 
-This branch adds a small JPA experiment for understanding `@Transactional`, Persistence Context, and Dirty Checking.
+This experiment checks the difference between changing an Entity object in memory and actually updating the database row.
 
-The goal is to prove this with Postman:
+The important observation is:
 
 ```text
-Changing an Entity object does not always mean the DB row is updated.
-Dirty Checking works when the Entity is managed inside a transaction.
+/bad
+→ the response body shows the changed value
+→ but the next GET request shows the original DB value
+→ Hibernate SQL log shows SELECT only, no UPDATE
+
+/good
+→ the response body shows the changed value
+→ the next GET request also shows the changed DB value
+→ Hibernate SQL log shows SELECT + UPDATE
 ```
 
-Practice APIs:
+This proves that a changed Java object is not enough.
+
+The Entity must be managed inside a transaction for Dirty Checking to update the DB.
+
+### Practice APIs
 
 ```text
 POST  /api/transaction-practice/menus
@@ -233,44 +244,9 @@ PATCH /api/transaction-practice/menus/{id}/bad
 PATCH /api/transaction-practice/menus/{id}/good
 ```
 
-### Postman Experiment Result
+### What Postman Showed
 
-#### 1. Create Menu
-
-```http
-POST http://localhost:8080/api/transaction-practice/menus
-Content-Type: application/json
-X-Trace-Id: jpa-practice-create-001
-```
-
-Body:
-
-```json
-{
-  "name": "original-menu",
-  "price": 1000
-}
-```
-
-Result:
-
-```json
-{
-  "id": 1,
-  "name": "original-menu",
-  "price": 1000,
-  "message": "created by repository.save()",
-  "traceId": "jpa-practice-create-001"
-}
-```
-
-Console observation:
-
-```text
-Hibernate insert into practice_menu
-```
-
-#### 2. Bad Update Without Service Transaction
+#### 1. Bad Update
 
 ```http
 PATCH http://localhost:8080/api/transaction-practice/menus/1/bad
@@ -286,7 +262,7 @@ Body:
 }
 ```
 
-Result:
+Response:
 
 ```json
 {
@@ -298,14 +274,16 @@ Result:
 }
 ```
 
-Then check the DB value again:
+At this point, the API response looked changed.
+
+But the follow-up request told the real result:
 
 ```http
 GET http://localhost:8080/api/transaction-practice/menus/1
 X-Trace-Id: jpa-practice-get-after-bad-001
 ```
 
-Result:
+Response:
 
 ```json
 {
@@ -320,14 +298,18 @@ Result:
 Observation:
 
 ```text
-The response object showed "bad-change",
-but the database value stayed "original-menu".
-
-Console log showed SELECT only.
-No UPDATE SQL was executed.
+The response object changed,
+but the DB value did not change.
 ```
 
-#### 3. Good Update Inside `@Transactional`
+Hibernate SQL log:
+
+```sql
+SELECT only
+No UPDATE
+```
+
+#### 2. Good Update
 
 ```http
 PATCH http://localhost:8080/api/transaction-practice/menus/1/good
@@ -343,7 +325,7 @@ Body:
 }
 ```
 
-Result:
+Response:
 
 ```json
 {
@@ -355,7 +337,7 @@ Result:
 }
 ```
 
-Then check the DB value again:
+Follow-up request:
 
 ```http
 GET http://localhost:8080/api/transaction-practice/menus/1
@@ -377,34 +359,30 @@ Result:
 Observation:
 
 ```text
-The database value changed to "good-change".
-
-Console log showed SELECT and UPDATE.
-Dirty Checking worked because the Entity was managed inside @Transactional.
+The response changed,
+and the DB value also changed.
 ```
 
-### What This Proves
+Hibernate SQL log:
 
-```text
-Repository.save()
-= creates or stores an Entity through JPA.
-
-@Transactional
-= defines the business transaction boundary.
-
-Persistence Context
-= manages Entity state inside that boundary.
-
-Dirty Checking
-= compares managed Entity changes and sends UPDATE SQL at flush/commit time.
+```sql
+SELECT
+UPDATE
 ```
 
-The practical rule:
+### Result
 
 ```text
-For update logic, load the Entity inside a Service @Transactional method,
-change the managed Entity,
-and let Dirty Checking update the DB.
+Postman showed the API response.
+Hibernate SQL logs showed what actually happened inside the server.
+The follow-up GET request confirmed whether the DB row really changed.
+```
+
+The practical lesson:
+
+```text
+Changing an Entity object is not the same as updating the DB.
+Dirty Checking works when the Entity is managed inside a Service-level @Transactional boundary.
 ```
 
 ## How To Run
