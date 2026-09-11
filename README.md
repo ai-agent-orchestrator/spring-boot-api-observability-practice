@@ -8,6 +8,51 @@ The point is not to repeat generic JPA notes. The point is to prove one practica
 Changing an Entity object in Java is not the same as updating the DB row.
 ```
 
+## First Observability Moment
+
+The first meaningful moment in this experiment was not just getting a successful Postman response.
+
+It was finding the same traceId in the server log:
+
+```text
+INFO [traceId=jpa-practice-create-001]
+```
+
+and then seeing Hibernate execute the actual INSERT SQL:
+
+```sql
+Hibernate:
+    insert
+    into
+        practice_menu
+```
+
+This connected the whole backend flow:
+
+```text
+Postman Header
+→ X-Trace-Id: jpa-practice-create-001
+
+Spring Boot Log
+→ traceId=jpa-practice-create-001
+
+Hibernate SQL Log
+→ insert into practice_menu
+```
+
+At that point, the request was no longer abstract.
+
+I could see that one Postman request reached the Spring Boot server, passed through the traceId logging flow, and actually created a database row through Hibernate.
+
+This is the backend feedback loop I want to keep practicing:
+
+```text
+Postman response
+→ traceId log
+→ Hibernate SQL log
+→ actual DB behavior
+```
+
 ## What I Tested
 
 This experiment checks the difference between changing an Entity object in memory and actually updating the database row.
