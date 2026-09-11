@@ -2,23 +2,37 @@
 
 This branch is a Postman-based JPA N+1 experiment inside the Spring Boot API observability project.
 
-The point is not to repeat generic JPA performance notes. The point is to see the hidden SQL cost behind a normal-looking API response.
+## Actual Experiment Result
+
+This is the key flow observed in this experiment:
 
 ```text
-Postman can show a successful response.
-Hibernate SQL logs show what the server actually did to the DB.
+1. PracticeChatLog is queried first.
+2. PracticeUser is not loaded together because the association is LAZY.
+3. During DTO conversion, userName is needed.
+4. The code calls chatLog.getUser().getName().
+5. Hibernate then loads the User for each ChatLog.
+6. If there are N ChatLogs, User SELECT also happens N times.
+7. That becomes N+1.
 ```
+
+In this experiment:
+
+```text
+ChatLog list SELECT 1 time
++ User SELECT N times
+= N+1
+```
+
+So the problem is not that the Postman response is broken. The response can look perfectly normal.
+
+The problem is hidden in the Hibernate SQL log.
+
+The point is not to repeat generic JPA performance notes. The point is to see the hidden SQL cost behind a normal-looking API response.
 
 ## What I Tested
 
-This experiment checks a common JPA performance problem:
-
-```text
-The API response can look normal,
-but Hibernate may be running repeated SELECT queries behind the response.
-```
-
-The important observation is:
+This experiment checks this exact situation:
 
 ```text
 /bad
