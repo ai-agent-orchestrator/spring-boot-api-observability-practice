@@ -1,219 +1,14 @@
-# Spring Boot API Observability Practice
+# JPA Transaction Practice
 
-## Project Focus
+This branch is a Postman-based JPA experiment inside the Spring Boot API observability project.
 
-This project is focused on observing an API server through the three core pillars of observability:
-
-```text
-Metrics = request count, response time, error count
-Logs    = request start/end/error records
-Traces  = one request can be followed with the same traceId
-```
-
-The main goal is not to make a simple REST API and stop there. The goal is to send requests with Postman, read the server feedback, and understand why the server behaves a certain way.
-
-This project is designed for AI server practice. In an AI API server, we need to observe questions like:
-
-- Did response time increase when the prompt changed?
-- Did the error rate increase when the model changed?
-- Does a specific `userId` fail more often?
-- Can token usage be observed later?
-- Is the bottleneck inside the Spring server, DB, or external LLM API call?
-- Can the same `traceId` be followed from response to logs?
-
-## Feedback Loop
-
-The practice flow is:
+The point is not to repeat generic JPA notes. The point is to prove one practical mistake:
 
 ```text
-Run Spring Boot server
-→ Send GET/POST requests with Postman
-→ Add Headers such as X-Trace-Id
-→ Send JSON RequestBody
-→ Check JSON ResponseBody
-→ Check JSON ErrorResponse
-→ Read logs with the same traceId
-→ Check Actuator metrics
-→ Infer what happened inside the server
+Changing an Entity object in Java is not the same as updating the DB row.
 ```
 
-This is the beginning of backend feedback-driven development. The server is not only coded; it is tested, observed, and improved through repeated API requests.
-
-## Mermaid Flowchart
-
-```mermaid
-flowchart TB
-    A["Postman / Frontend / AI Agent"] --> B["HTTP Request"]
-    B --> C["TraceIdInterceptor"]
-    C --> D["preHandle"]
-    D --> E["Create or read X-Trace-Id"]
-    E --> F["Save startTime"]
-    F --> G["REST Controller"]
-    G --> H["Service"]
-    H --> I["Response DTO"]
-    H --> J["Exception"]
-    J --> K["ApiExceptionHandler"]
-    K --> L["ErrorResponse"]
-    I --> M["afterCompletion"]
-    L --> M
-    M --> N["Logs with traceId"]
-    M --> O["Metrics: count / duration / errors"]
-    N --> P["Reason about one request"]
-    O --> P
-```
-
-## What To Observe
-
-### 1. Metrics
-
-Metrics show server behavior as numbers.
-
-```http
-GET /actuator/metrics/practice.api.requests
-GET /actuator/metrics/practice.api.request.duration
-GET /actuator/metrics/practice.api.errors
-GET /actuator/prometheus
-```
-
-Custom metrics:
-
-```text
-practice.api.requests
-practice.api.request.duration
-practice.api.errors
-```
-
-These are used to check request count, processing time, and error count.
-
-### 2. Logs
-
-Logs show what happened during the request.
-
-Example:
-
-```text
-request start traceId=demo-trace-001 method=POST uri=/api/chat thread=...
-request end traceId=demo-trace-001 method=POST uri=/api/chat status=200 outcome=SUCCESS elapsedMs=...
-```
-
-The same `traceId` appears in the console log.
-
-### 3. Traces
-
-This project uses a simple manual `traceId` practice.
-
-```text
-Postman sends X-Trace-Id
-→ Interceptor stores it
-→ Service reads it
-→ Response includes it
-→ Logs include it
-→ Metrics change after the request
-```
-
-This is not full distributed tracing yet. Later this can be extended with Micrometer Tracing, OpenTelemetry, Zipkin, Jaeger, or Grafana Tempo.
-
-## Main APIs
-
-### Chat API
-
-```http
-POST http://localhost:8080/api/chat
-Content-Type: application/json
-X-Trace-Id: demo-trace-001
-```
-
-Body:
-
-```json
-{
-  "userId": "u01",
-  "message": "observability test",
-  "model": "mock"
-}
-```
-
-Expected response:
-
-```json
-{
-  "userId": "u01",
-  "model": "mock",
-  "answer": "...",
-  "thread": "VirtualThread[...]",
-  "traceId": "demo-trace-001"
-}
-```
-
-### Validation Error Practice
-
-Send an invalid body:
-
-```json
-{
-  "userId": "",
-  "message": "",
-  "model": ""
-}
-```
-
-Expected error response:
-
-```json
-{
-  "code": "INVALID_REQUEST",
-  "message": "Request validation failed",
-  "status": 400,
-  "path": "/api/chat",
-  "traceId": "demo-trace-error-001",
-  "fieldErrors": {
-    "userId": "userId is required",
-    "message": "message is required",
-    "model": "model is required"
-  }
-}
-```
-
-### Observability Guide API
-
-```http
-GET http://localhost:8080/api/observability/guide
-X-Trace-Id: demo-trace-guide-001
-```
-
-## Postman Practice Set
-
-Create and save these requests in Postman:
-
-```text
-1. POST /api/chat - normal request
-2. POST /api/chat - validation error request
-3. GET /actuator/metrics/practice.api.requests
-4. GET /actuator/metrics/practice.api.request.duration
-5. GET /actuator/metrics/practice.api.errors
-6. GET /actuator/prometheus
-```
-
-Run them repeatedly and compare:
-
-```text
-Before request → after request
-Normal request → error request
-prompt A → prompt B
-model A → model B
-userId A → userId B
-```
-
-The important habit is to ask:
-
-```text
-What changed in the response?
-What changed in the logs?
-What changed in the metrics?
-Can I follow the same traceId?
-```
-
-## JPA Transaction Practice
+## What I Tested
 
 This experiment checks the difference between changing an Entity object in memory and actually updating the database row.
 
@@ -235,7 +30,7 @@ This proves that a changed Java object is not enough.
 
 The Entity must be managed inside a transaction for Dirty Checking to update the DB.
 
-### Practice APIs
+## Practice APIs
 
 ```text
 POST  /api/transaction-practice/menus
@@ -244,9 +39,62 @@ PATCH /api/transaction-practice/menus/{id}/bad
 PATCH /api/transaction-practice/menus/{id}/good
 ```
 
-### What Postman Showed
+## Postman Setup
 
-#### 1. Bad Update
+Run the server:
+
+```powershell
+./gradlew bootRun
+```
+
+Health check:
+
+```http
+GET http://localhost:8080/actuator/health
+```
+
+Expected response:
+
+```json
+{
+  "status": "UP"
+}
+```
+
+Create the first menu:
+
+```http
+POST http://localhost:8080/api/transaction-practice/menus
+Content-Type: application/json
+X-Trace-Id: jpa-practice-create-001
+```
+
+Body:
+
+```json
+{
+  "name": "original-menu",
+  "price": 1000
+}
+```
+
+Expected response:
+
+```json
+{
+  "id": 1,
+  "name": "original-menu",
+  "price": 1000,
+  "message": "created by repository.save()",
+  "traceId": "jpa-practice-create-001"
+}
+```
+
+## What Postman Showed
+
+### 1. Bad Update
+
+Request:
 
 ```http
 PATCH http://localhost:8080/api/transaction-practice/menus/1/bad
@@ -309,7 +157,9 @@ SELECT only
 No UPDATE
 ```
 
-#### 2. Good Update
+### 2. Good Update
+
+Request:
 
 ```http
 PATCH http://localhost:8080/api/transaction-practice/menus/1/good
@@ -344,7 +194,7 @@ GET http://localhost:8080/api/transaction-practice/menus/1
 X-Trace-Id: jpa-practice-get-after-good-001
 ```
 
-Result:
+Response:
 
 ```json
 {
@@ -370,7 +220,7 @@ SELECT
 UPDATE
 ```
 
-### Result
+## Result
 
 ```text
 Postman showed the API response.
@@ -385,14 +235,16 @@ Changing an Entity object is not the same as updating the DB.
 Dirty Checking works when the Entity is managed inside a Service-level @Transactional boundary.
 ```
 
-## How To Run
+## Why This Matters
 
-```powershell
-./gradlew bootRun
+This is part of the backend feedback loop:
+
+```text
+Postman response
+→ traceId logs
+→ Hibernate SQL logs
+→ follow-up GET
+→ actual DB behavior
 ```
 
-Then test with Postman.
-
-## One-Line Summary
-
-This project practices AI-server-style API observability by sending Postman requests and connecting response bodies, error responses, logs, metrics, and traceId-based traces into one feedback loop.
+The goal is to understand JPA by observing real request/response behavior, not by memorizing isolated annotations.
