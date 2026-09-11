@@ -202,6 +202,28 @@ SELECT only
 No UPDATE
 ```
 
+Key evidence from `/bad`:
+
+```text
+/bad
+→ SELECT appears because the Entity is loaded from DB
+→ UPDATE does not appear because Dirty Checking does not flush changes without @Transactional
+→ the response shows bad-change
+→ the DB still keeps original-menu
+```
+
+The response body can be misleading.
+
+```text
+응답 JSON에 바뀐 값이 보인다고 해서 DB가 실제로 변경된 것은 아니다.
+```
+
+Because Dirty Checking did not work inside a `@Transactional` boundary, Hibernate did not execute an `UPDATE` SQL.
+
+The DB row still kept `original-menu`.
+
+If I only looked at the response JSON, I could easily think that the update succeeded. But the follow-up GET request and Hibernate SQL log showed that the DB did not change.
+
 ### 2. Good Update
 
 Request:
