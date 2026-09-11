@@ -1,230 +1,81 @@
-# Spring Boot API Observability Practice
+# JPA Transaction Practice
 
-## Project Focus
+This branch is a Postman-based JPA experiment inside the Spring Boot API observability project.
 
-This project is focused on observing an API server through the three core pillars of observability:
-
-```text
-Metrics = request count, response time, error count
-Logs    = request start/end/error records
-Traces  = one request can be followed with the same traceId
-```
-
-The main goal is not to make a simple REST API and stop there. The goal is to send requests with Postman, read the server feedback, and understand why the server behaves a certain way.
-
-This project is designed for AI server practice. In an AI API server, we need to observe questions like:
-
-- Did response time increase when the prompt changed?
-- Did the error rate increase when the model changed?
-- Does a specific `userId` fail more often?
-- Can token usage be observed later?
-- Is the bottleneck inside the Spring server, DB, or external LLM API call?
-- Can the same `traceId` be followed from response to logs?
-
-## Feedback Loop
-
-The practice flow is:
+The point is not to repeat generic JPA notes. The point is to prove one practical mistake:
 
 ```text
-Run Spring Boot server
-→ Send GET/POST requests with Postman
-→ Add Headers such as X-Trace-Id
-→ Send JSON RequestBody
-→ Check JSON ResponseBody
-→ Check JSON ErrorResponse
-→ Read logs with the same traceId
-→ Check Actuator metrics
-→ Infer what happened inside the server
+Changing an Entity object in Java is not the same as updating the DB row.
 ```
 
-This is the beginning of backend feedback-driven development. The server is not only coded; it is tested, observed, and improved through repeated API requests.
+## First Observability Moment
 
-## Mermaid Flowchart
+The first meaningful moment in this experiment was not just getting a successful Postman response.
 
-```mermaid
-flowchart TB
-    A["Postman / Frontend / AI Agent"] --> B["HTTP Request"]
-    B --> C["TraceIdInterceptor"]
-    C --> D["preHandle"]
-    D --> E["Create or read X-Trace-Id"]
-    E --> F["Save startTime"]
-    F --> G["REST Controller"]
-    G --> H["Service"]
-    H --> I["Response DTO"]
-    H --> J["Exception"]
-    J --> K["ApiExceptionHandler"]
-    K --> L["ErrorResponse"]
-    I --> M["afterCompletion"]
-    L --> M
-    M --> N["Logs with traceId"]
-    M --> O["Metrics: count / duration / errors"]
-    N --> P["Reason about one request"]
-    O --> P
-```
-
-## What To Observe
-
-### 1. Metrics
-
-Metrics show server behavior as numbers.
-
-```http
-GET /actuator/metrics/practice.api.requests
-GET /actuator/metrics/practice.api.request.duration
-GET /actuator/metrics/practice.api.errors
-GET /actuator/prometheus
-```
-
-Custom metrics:
+It was finding the same traceId in the server log:
 
 ```text
-practice.api.requests
-practice.api.request.duration
-practice.api.errors
+INFO [traceId=jpa-practice-create-001]
 ```
 
-These are used to check request count, processing time, and error count.
+and then seeing Hibernate execute the actual INSERT SQL:
 
-### 2. Logs
+```sql
+Hibernate:
+    insert
+    into
+        practice_menu
+```
 
-Logs show what happened during the request.
-
-Example:
+This connected the whole backend flow:
 
 ```text
-request start traceId=demo-trace-001 method=POST uri=/api/chat thread=...
-request end traceId=demo-trace-001 method=POST uri=/api/chat status=200 outcome=SUCCESS elapsedMs=...
+Postman Header
+→ X-Trace-Id: jpa-practice-create-001
+
+Spring Boot Log
+→ traceId=jpa-practice-create-001
+
+Hibernate SQL Log
+→ insert into practice_menu
 ```
 
-The same `traceId` appears in the console log.
+At that point, the request was no longer abstract.
 
-### 3. Traces
+I could see that one Postman request reached the Spring Boot server, passed through the traceId logging flow, and actually created a database row through Hibernate.
 
-This project uses a simple manual `traceId` practice.
+This is the backend feedback loop I want to keep practicing:
 
 ```text
-Postman sends X-Trace-Id
-→ Interceptor stores it
-→ Service reads it
-→ Response includes it
-→ Logs include it
-→ Metrics change after the request
+Postman response
+→ traceId log
+→ Hibernate SQL log
+→ actual DB behavior
 ```
 
-This is not full distributed tracing yet. Later this can be extended with Micrometer Tracing, OpenTelemetry, Zipkin, Jaeger, or Grafana Tempo.
+## What I Tested
 
-## Main APIs
+This experiment checks the difference between changing an Entity object in memory and actually updating the database row.
 
-### Chat API
-
-```http
-POST http://localhost:8080/api/chat
-Content-Type: application/json
-X-Trace-Id: demo-trace-001
-```
-
-Body:
-
-```json
-{
-  "userId": "u01",
-  "message": "observability test",
-  "model": "mock"
-}
-```
-
-Expected response:
-
-```json
-{
-  "userId": "u01",
-  "model": "mock",
-  "answer": "...",
-  "thread": "VirtualThread[...]",
-  "traceId": "demo-trace-001"
-}
-```
-
-### Validation Error Practice
-
-Send an invalid body:
-
-```json
-{
-  "userId": "",
-  "message": "",
-  "model": ""
-}
-```
-
-Expected error response:
-
-```json
-{
-  "code": "INVALID_REQUEST",
-  "message": "Request validation failed",
-  "status": 400,
-  "path": "/api/chat",
-  "traceId": "demo-trace-error-001",
-  "fieldErrors": {
-    "userId": "userId is required",
-    "message": "message is required",
-    "model": "model is required"
-  }
-}
-```
-
-### Observability Guide API
-
-```http
-GET http://localhost:8080/api/observability/guide
-X-Trace-Id: demo-trace-guide-001
-```
-
-## Postman Practice Set
-
-Create and save these requests in Postman:
+The important observation is:
 
 ```text
-1. POST /api/chat - normal request
-2. POST /api/chat - validation error request
-3. GET /actuator/metrics/practice.api.requests
-4. GET /actuator/metrics/practice.api.request.duration
-5. GET /actuator/metrics/practice.api.errors
-6. GET /actuator/prometheus
+/bad
+→ the response body shows the changed value
+→ but the next GET request shows the original DB value
+→ Hibernate SQL log shows SELECT only, no UPDATE
+
+/good
+→ the response body shows the changed value
+→ the next GET request also shows the changed DB value
+→ Hibernate SQL log shows SELECT + UPDATE
 ```
 
-Run them repeatedly and compare:
+This proves that a changed Java object is not enough.
 
-```text
-Before request → after request
-Normal request → error request
-prompt A → prompt B
-model A → model B
-userId A → userId B
-```
+The Entity must be managed inside a transaction for Dirty Checking to update the DB.
 
-The important habit is to ask:
-
-```text
-What changed in the response?
-What changed in the logs?
-What changed in the metrics?
-Can I follow the same traceId?
-```
-
-## JPA Transaction Practice
-
-This branch adds a small JPA experiment for understanding `@Transactional`, Persistence Context, and Dirty Checking.
-
-The goal is to prove this with Postman:
-
-```text
-Changing an Entity object does not always mean the DB row is updated.
-Dirty Checking works when the Entity is managed inside a transaction.
-```
-
-Practice APIs:
+## Practice APIs
 
 ```text
 POST  /api/transaction-practice/menus
@@ -233,9 +84,29 @@ PATCH /api/transaction-practice/menus/{id}/bad
 PATCH /api/transaction-practice/menus/{id}/good
 ```
 
-### Postman Experiment Result
+## Postman Setup
 
-#### 1. Create Menu
+Run the server:
+
+```powershell
+./gradlew bootRun
+```
+
+Health check:
+
+```http
+GET http://localhost:8080/actuator/health
+```
+
+Expected response:
+
+```json
+{
+  "status": "UP"
+}
+```
+
+Create the first menu:
 
 ```http
 POST http://localhost:8080/api/transaction-practice/menus
@@ -252,7 +123,7 @@ Body:
 }
 ```
 
-Result:
+Expected response:
 
 ```json
 {
@@ -264,13 +135,11 @@ Result:
 }
 ```
 
-Console observation:
+## What Postman Showed
 
-```text
-Hibernate insert into practice_menu
-```
+### 1. Bad Update
 
-#### 2. Bad Update Without Service Transaction
+Request:
 
 ```http
 PATCH http://localhost:8080/api/transaction-practice/menus/1/bad
@@ -286,7 +155,7 @@ Body:
 }
 ```
 
-Result:
+Response:
 
 ```json
 {
@@ -298,14 +167,16 @@ Result:
 }
 ```
 
-Then check the DB value again:
+At this point, the API response looked changed.
+
+But the follow-up request told the real result:
 
 ```http
 GET http://localhost:8080/api/transaction-practice/menus/1
 X-Trace-Id: jpa-practice-get-after-bad-001
 ```
 
-Result:
+Response:
 
 ```json
 {
@@ -320,14 +191,42 @@ Result:
 Observation:
 
 ```text
-The response object showed "bad-change",
-but the database value stayed "original-menu".
-
-Console log showed SELECT only.
-No UPDATE SQL was executed.
+The response object changed,
+but the DB value did not change.
 ```
 
-#### 3. Good Update Inside `@Transactional`
+Hibernate SQL log:
+
+```sql
+SELECT only
+No UPDATE
+```
+
+Key evidence from `/bad`:
+
+```text
+/bad
+→ SELECT appears because the Entity is loaded from DB
+→ UPDATE does not appear because Dirty Checking does not flush changes without @Transactional
+→ the response shows bad-change
+→ the DB still keeps original-menu
+```
+
+The response body can be misleading.
+
+```text
+응답 JSON에 바뀐 값이 보인다고 해서 DB가 실제로 변경된 것은 아니다.
+```
+
+Because Dirty Checking did not work inside a `@Transactional` boundary, Hibernate did not execute an `UPDATE` SQL.
+
+The DB row still kept `original-menu`.
+
+If I only looked at the response JSON, I could easily think that the update succeeded. But the follow-up GET request and Hibernate SQL log showed that the DB did not change.
+
+### 2. Good Update
+
+Request:
 
 ```http
 PATCH http://localhost:8080/api/transaction-practice/menus/1/good
@@ -343,7 +242,7 @@ Body:
 }
 ```
 
-Result:
+Response:
 
 ```json
 {
@@ -355,14 +254,14 @@ Result:
 }
 ```
 
-Then check the DB value again:
+Follow-up request:
 
 ```http
 GET http://localhost:8080/api/transaction-practice/menus/1
 X-Trace-Id: jpa-practice-get-after-good-001
 ```
 
-Result:
+Response:
 
 ```json
 {
@@ -377,44 +276,42 @@ Result:
 Observation:
 
 ```text
-The database value changed to "good-change".
-
-Console log showed SELECT and UPDATE.
-Dirty Checking worked because the Entity was managed inside @Transactional.
+The response changed,
+and the DB value also changed.
 ```
 
-### What This Proves
+Hibernate SQL log:
+
+```sql
+SELECT
+UPDATE
+```
+
+## Result
 
 ```text
-Repository.save()
-= creates or stores an Entity through JPA.
-
-@Transactional
-= defines the business transaction boundary.
-
-Persistence Context
-= manages Entity state inside that boundary.
-
-Dirty Checking
-= compares managed Entity changes and sends UPDATE SQL at flush/commit time.
+Postman showed the API response.
+Hibernate SQL logs showed what actually happened inside the server.
+The follow-up GET request confirmed whether the DB row really changed.
 ```
 
-The practical rule:
+The practical lesson:
 
 ```text
-For update logic, load the Entity inside a Service @Transactional method,
-change the managed Entity,
-and let Dirty Checking update the DB.
+Changing an Entity object is not the same as updating the DB.
+Dirty Checking works when the Entity is managed inside a Service-level @Transactional boundary.
 ```
 
-## How To Run
+## Why This Matters
 
-```powershell
-./gradlew bootRun
+This is part of the backend feedback loop:
+
+```text
+Postman response
+→ traceId logs
+→ Hibernate SQL logs
+→ follow-up GET
+→ actual DB behavior
 ```
 
-Then test with Postman.
-
-## One-Line Summary
-
-This project practices AI-server-style API observability by sending Postman requests and connecting response bodies, error responses, logs, metrics, and traceId-based traces into one feedback loop.
+The goal is to understand JPA by observing real request/response behavior, not by memorizing isolated annotations.
