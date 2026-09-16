@@ -28,6 +28,11 @@ public class AgentPracticeController {
         return agentPracticeService.toolError(request);
     }
 
+    @PostMapping("/retry")
+    public AgentPracticeResponse retry(@RequestBody(required = false) AgentPracticeRequest request) {
+        return agentPracticeService.retry(request);
+    }
+
     @PostMapping("/approval")
     public AgentPracticeResponse approval(@RequestBody(required = false) AgentPracticeRequest request) {
         return agentPracticeService.approval(request);
@@ -36,5 +41,15 @@ public class AgentPracticeController {
     @PostMapping("/policy-violation")
     public AgentPracticeResponse policyViolation(@RequestBody(required = false) AgentPracticeRequest request) {
         return agentPracticeService.policyViolation(request);
+    }
+
+    @PostMapping("/external-api")
+    public AgentPracticeResponse externalApi(@RequestBody(required = false) AgentPracticeRequest request) {
+        return agentPracticeService.externalApi(request);
+    }
+
+    @PostMapping("/db-write")
+    public AgentPracticeResponse dbWrite(@RequestBody(required = false) AgentPracticeRequest request) {
+        return agentPracticeService.dbWrite(request);
     }
 }

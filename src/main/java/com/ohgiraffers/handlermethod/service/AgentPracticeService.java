@@ -58,6 +58,27 @@ public class AgentPracticeService {
         );
     }
 
+    public AgentPracticeResponse retry(AgentPracticeRequest request) {
+        String toolName = toolName(request);
+        int planSteps = planSteps(request, 5);
+        int retryCount = retryCount(request, 3);
+
+        agentMetricRecorder.recordToolCall(toolName, "retried");
+        agentMetricRecorder.recordPlanSteps(planSteps);
+        agentMetricRecorder.recordRetryCount(retryCount);
+        agentMetricRecorder.recordTokenCost(promptTokens(request, 140), completionTokens(request, 90));
+
+        return response(
+                "retry",
+                "RETRIED",
+                "Simulated agent retry behavior recorded.",
+                toolName,
+                planSteps,
+                retryCount,
+                request
+        );
+    }
+
     public AgentPracticeResponse approval(AgentPracticeRequest request) {
         String toolName = toolName(request);
         int planSteps = planSteps(request, 4);
@@ -95,6 +116,50 @@ public class AgentPracticeService {
                 "policy-violation",
                 "DENIED",
                 "Simulated guardrail-ready policy violation recorded.",
+                toolName,
+                planSteps,
+                retryCount,
+                request
+        );
+    }
+
+    public AgentPracticeResponse externalApi(AgentPracticeRequest request) {
+        String toolName = toolName(request);
+        int planSteps = planSteps(request, 3);
+        int retryCount = retryCount(request, 0);
+
+        agentMetricRecorder.recordToolCall(toolName, "external_api");
+        agentMetricRecorder.recordExternalApiCall("mock-llm-provider", "success");
+        agentMetricRecorder.recordPlanSteps(planSteps);
+        agentMetricRecorder.recordRetryCount(retryCount);
+        agentMetricRecorder.recordTokenCost(promptTokens(request, 200), completionTokens(request, 120));
+
+        return response(
+                "external-api",
+                "ALLOWED",
+                "Simulated external API call recorded.",
+                toolName,
+                planSteps,
+                retryCount,
+                request
+        );
+    }
+
+    public AgentPracticeResponse dbWrite(AgentPracticeRequest request) {
+        String toolName = toolName(request);
+        int planSteps = planSteps(request, 2);
+        int retryCount = retryCount(request, 0);
+
+        agentMetricRecorder.recordToolCall(toolName, "db_write");
+        agentMetricRecorder.recordDbWrite("agent_memory", "success");
+        agentMetricRecorder.recordPlanSteps(planSteps);
+        agentMetricRecorder.recordRetryCount(retryCount);
+        agentMetricRecorder.recordTokenCost(promptTokens(request, 100), completionTokens(request, 40));
+
+        return response(
+                "db-write",
+                "ALLOWED",
+                "Simulated agent database write recorded.",
                 toolName,
                 planSteps,
                 retryCount,

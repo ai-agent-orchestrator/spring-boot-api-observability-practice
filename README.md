@@ -1,4 +1,17 @@
-# JPA N+1 Practice
+# Spring Boot Observability Practice
+
+This project is a custom observability practice for Spring Boot APIs.
+
+```text
+Spring Boot Observability Practice
+-> from JPA N+1 metrics
+-> to AI Agent behavior metrics
+-> to Security/Guardrail metrics
+```
+
+The goal is to observe internal cost and behavior behind successful API responses.
+
+## JPA N+1 Practice
 
 This branch is a Postman-based JPA N+1 experiment inside the Spring Boot API observability project.
 
@@ -309,8 +322,11 @@ Practice APIs:
 ```http
 POST /api/agent/practice/run
 POST /api/agent/practice/tool-error
+POST /api/agent/practice/retry
 POST /api/agent/practice/approval
 POST /api/agent/practice/policy-violation
+POST /api/agent/practice/external-api
+POST /api/agent/practice/db-write
 ```
 
 Sample body:
@@ -335,6 +351,8 @@ agent.plan.steps
 agent.plan.steps.per.request
 agent.retry.count
 agent.cost.tokens
+agent.external.api.calls
+agent.db.write
 agent.approval.required
 agent.policy.violation
 ```
@@ -348,6 +366,8 @@ agent_plan_steps_total
 agent_plan_steps_per_request_sum
 agent_retry_count_total
 agent_cost_tokens_total
+agent_external_api_calls_total
+agent_db_write_total
 agent_approval_required_total
 agent_policy_violation_total
 ```
@@ -360,6 +380,18 @@ increase(agent_tool_calls_total[5m])
 
 ```promql
 increase(agent_tool_errors_total[5m])
+```
+
+```promql
+increase(agent_retry_count_total[5m])
+```
+
+```promql
+increase(agent_external_api_calls_total[5m])
+```
+
+```promql
+increase(agent_db_write_total[5m])
 ```
 
 ```promql

@@ -51,6 +51,24 @@ public class AgentMetricRecorder {
                 .increment(Math.max(retryCount, 0));
     }
 
+    public void recordExternalApiCall(String provider, String outcome) {
+        Counter.builder("agent.external.api.calls")
+                .description("Total number of simulated agent external API calls")
+                .tag("provider", normalize(provider))
+                .tag("outcome", outcome)
+                .register(meterRegistry)
+                .increment();
+    }
+
+    public void recordDbWrite(String target, String outcome) {
+        Counter.builder("agent.db.write")
+                .description("Total number of simulated agent database writes")
+                .tag("target", normalize(target))
+                .tag("outcome", outcome)
+                .register(meterRegistry)
+                .increment();
+    }
+
     public void recordTokenCost(int promptTokens, int completionTokens) {
         int safePromptTokens = Math.max(promptTokens, 0);
         int safeCompletionTokens = Math.max(completionTokens, 0);
