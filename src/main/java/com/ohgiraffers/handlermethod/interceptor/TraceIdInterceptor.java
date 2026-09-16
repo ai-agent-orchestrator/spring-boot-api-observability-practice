@@ -2,6 +2,7 @@ package com.ohgiraffers.handlermethod.interceptor;
 
 import com.ohgiraffers.handlermethod.support.TraceContext;
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import jakarta.servlet.http.HttpServletRequest;
@@ -54,16 +55,18 @@ public class TraceIdInterceptor implements HandlerInterceptor {
         String traceId = TraceContext.currentTraceId();
         String status = String.valueOf(response.getStatus());
         String outcome = response.getStatus() >= 400 || ex != null ? "ERROR" : "SUCCESS";
+        int sqlStatementCount = TraceContext.currentSqlStatementCount();
 
-        recordMetrics(request, status, outcome, elapsedMs);
+        recordMetrics(request, status, outcome, elapsedMs, sqlStatementCount);
 
-        log.info("request end traceId={} method={} uri={} status={} outcome={} elapsedMs={} thread={}",
+        log.info("request end traceId={} method={} uri={} status={} outcome={} elapsedMs={} sqlStatements={} thread={}",
                 traceId,
                 request.getMethod(),
                 request.getRequestURI(),
                 status,
                 outcome,
                 elapsedMs,
+                sqlStatementCount,
                 Thread.currentThread());
 
         if (ex != null) {
@@ -98,7 +101,7 @@ public class TraceIdInterceptor implements HandlerInterceptor {
         return -1;
     }
 
-    private void recordMetrics(HttpServletRequest request, String status, String outcome, long elapsedMs) {
+    private void recordMetrics(HttpServletRequest request, String status, String outcome, long elapsedMs, int sqlStatementCount) {
         String method = request.getMethod();
         String uri = request.getRequestURI();
 
@@ -119,6 +122,24 @@ public class TraceIdInterceptor implements HandlerInterceptor {
                 .tag("outcome", outcome)
                 .register(meterRegistry)
                 .record(Math.max(elapsedMs, 0), TimeUnit.MILLISECONDS);
+
+        Counter.builder("practice.api.sql.statements")
+                .description("Total number of SQL statements executed during traced API requests")
+                .tag("method", method)
+                .tag("uri", uri)
+                .tag("status", status)
+                .tag("outcome", outcome)
+                .register(meterRegistry)
+                .increment(sqlStatementCount);
+
+        DistributionSummary.builder("practice.api.sql.statements.per.request")
+                .description("SQL statement count per traced API request")
+                .tag("method", method)
+                .tag("uri", uri)
+                .tag("status", status)
+                .tag("outcome", outcome)
+                .register(meterRegistry)
+                .record(sqlStatementCount);
 
         if ("ERROR".equals(outcome)) {
             Counter.builder("practice.api.errors")

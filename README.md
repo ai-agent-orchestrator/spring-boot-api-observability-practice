@@ -240,3 +240,51 @@ Postman response
 ```
 
 The goal is to understand JPA performance by observing real request/response behavior and actual SQL execution.
+
+## Prometheus and Grafana Check
+
+This branch also exposes SQL statement count as application metrics.
+
+```text
+practice.api.sql.statements
+practice.api.sql.statements.per.request
+```
+
+Prometheus converts dots to underscores:
+
+```promql
+practice_api_sql_statements_total
+practice_api_sql_statements_per_request_count
+practice_api_sql_statements_per_request_sum
+```
+
+Compare `/bad` and `/good` with these queries:
+
+```promql
+increase(practice_api_sql_statements_total{uri="/api/n-plus-one-practice/bad"}[5m])
+```
+
+```promql
+increase(practice_api_sql_statements_total{uri="/api/n-plus-one-practice/good"}[5m])
+```
+
+Average SQL statements per request:
+
+```promql
+rate(practice_api_sql_statements_per_request_sum{uri="/api/n-plus-one-practice/bad"}[5m])
+/
+rate(practice_api_sql_statements_per_request_count{uri="/api/n-plus-one-practice/bad"}[5m])
+```
+
+```promql
+rate(practice_api_sql_statements_per_request_sum{uri="/api/n-plus-one-practice/good"}[5m])
+/
+rate(practice_api_sql_statements_per_request_count{uri="/api/n-plus-one-practice/good"}[5m])
+```
+
+The point is:
+
+```text
+/bad  -> one HTTP request, many SQL statements
+/good -> one HTTP request, fewer SQL statements
+```
