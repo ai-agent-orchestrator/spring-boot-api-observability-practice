@@ -288,3 +288,91 @@ The point is:
 /bad  -> one HTTP request, many SQL statements
 /good -> one HTTP request, fewer SQL statements
 ```
+
+## Agent Custom Metrics Practice
+
+This branch also starts a guardrail-ready agent observability practice.
+
+NeMo Guardrails is not integrated yet. The goal is to define a replaceable boundary first:
+
+```text
+Agent API
+-> AgentPracticeService
+-> AgentMetricRecorder
+-> Prometheus / Grafana
+```
+
+Later, a mock policy decision can be replaced with a real NeMo Guardrails adapter.
+
+Practice APIs:
+
+```http
+POST /api/agent/practice/run
+POST /api/agent/practice/tool-error
+POST /api/agent/practice/approval
+POST /api/agent/practice/policy-violation
+```
+
+Sample body:
+
+```json
+{
+  "userInput": "search recent policy documents",
+  "toolName": "search",
+  "planSteps": 3,
+  "retryCount": 1,
+  "promptTokens": 120,
+  "completionTokens": 80
+}
+```
+
+Custom metrics:
+
+```text
+agent.tool.calls
+agent.tool.errors
+agent.plan.steps
+agent.plan.steps.per.request
+agent.retry.count
+agent.cost.tokens
+agent.approval.required
+agent.policy.violation
+```
+
+Prometheus metric names:
+
+```promql
+agent_tool_calls_total
+agent_tool_errors_total
+agent_plan_steps_total
+agent_plan_steps_per_request_sum
+agent_retry_count_total
+agent_cost_tokens_total
+agent_approval_required_total
+agent_policy_violation_total
+```
+
+PromQL examples:
+
+```promql
+increase(agent_tool_calls_total[5m])
+```
+
+```promql
+increase(agent_tool_errors_total[5m])
+```
+
+```promql
+increase(agent_approval_required_total[5m])
+```
+
+```promql
+increase(agent_policy_violation_total[5m])
+```
+
+The point is:
+
+```text
+API success is not enough.
+Agent behavior, retries, tool failures, token cost, approvals, and policy violations must be observable.
+```
