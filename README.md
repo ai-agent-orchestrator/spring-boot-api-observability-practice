@@ -2,6 +2,53 @@
 
 This branch is a Postman-based JPA N+1 experiment inside the Spring Boot API observability project.
 
+## Main Result: N+1 Was Detected by SQL Count Metrics
+
+![N+1 bad vs good SQL statement metric](docs/evidence/n-plus-one/2026-09-17-n-plus-one-bad-vs-good-prometheus.png)
+
+```text
+Same API success.
+Different internal cost.
+```
+
+The experiment compares two endpoints:
+
+```text
+/bad
+-> normal response body
+-> one HTTP request
+-> many SQL statements inside the request
+-> N+1 detected
+
+/good
+-> similar response body
+-> one HTTP request
+-> fewer SQL statements with fetch join
+-> improvement detected
+```
+
+PromQL:
+
+```promql
+sum by(uri) (
+  increase(practice_api_sql_statements_total{uri=~"/api/n-plus-one-practice/(bad|good)"}[5m])
+)
+```
+
+Why this matters:
+
+```text
+Postman can show that the API works.
+Prometheus shows whether the API is internally expensive.
+```
+
+This is the core observability lesson:
+
+```text
+API success is not enough.
+Backend quality must include hidden internal cost.
+```
+
 ## Actual Experiment Result
 
 This is the key flow observed in this experiment:
