@@ -1,226 +1,370 @@
-# Spring Boot API Observability Practice
+# JPA N+1 Practice
 
-## Project Focus
+This branch is a Postman-based JPA N+1 experiment inside the Spring Boot API observability project.
 
-This project is focused on observing an API server through the three core pillars of observability:
+## Main Result: N+1 Was Detected by SQL Count Metrics
 
-```text
-Metrics = request count, response time, error count
-Logs    = request start/end/error records
-Traces  = one request can be followed with the same traceId
-```
-
-The main goal is not to make a simple REST API and stop there. The goal is to send requests with Postman, read the server feedback, and understand why the server behaves a certain way.
-
-This project is designed for AI server practice. In an AI API server, we need to observe questions like:
-
-- Did response time increase when the prompt changed?
-- Did the error rate increase when the model changed?
-- Does a specific `userId` fail more often?
-- Can token usage be observed later?
-- Is the bottleneck inside the Spring server, DB, or external LLM API call?
-- Can the same `traceId` be followed from response to logs?
-
-## Feedback Loop
-
-The practice flow is:
+![N+1 bad vs good SQL statement metric](docs/evidence/n-plus-one/2026-09-17-n-plus-one-bad-vs-good-prometheus.png)
 
 ```text
-Run Spring Boot server
-→ Send GET/POST requests with Postman
-→ Add Headers such as X-Trace-Id
-→ Send JSON RequestBody
-→ Check JSON ResponseBody
-→ Check JSON ErrorResponse
-→ Read logs with the same traceId
-→ Check Actuator metrics
-→ Infer what happened inside the server
+Same API success.
+Different internal cost.
 ```
 
-This is the beginning of backend feedback-driven development. The server is not only coded; it is tested, observed, and improved through repeated API requests.
+The experiment compares two endpoints:
 
-## Mermaid Flowchart
+```text
+/bad
+-> normal response body
+-> one HTTP request
+-> many SQL statements inside the request
+-> N+1 detected
 
-```mermaid
-flowchart TB
-    A["Postman / Frontend / AI Agent"] --> B["HTTP Request"]
-    B --> C["TraceIdInterceptor"]
-    C --> D["preHandle"]
-    D --> E["Create or read X-Trace-Id"]
-    E --> F["Save startTime"]
-    F --> G["REST Controller"]
-    G --> H["Service"]
-    H --> I["Response DTO"]
-    H --> J["Exception"]
-    J --> K["ApiExceptionHandler"]
-    K --> L["ErrorResponse"]
-    I --> M["afterCompletion"]
-    L --> M
-    M --> N["Logs with traceId"]
-    M --> O["Metrics: count / duration / errors"]
-    N --> P["Reason about one request"]
-    O --> P
+/good
+-> similar response body
+-> one HTTP request
+-> fewer SQL statements with fetch join
+-> improvement detected
 ```
 
-## What To Observe
+PromQL:
 
-### 1. Metrics
+```promql
+sum by(uri) (
+  increase(practice_api_sql_statements_total{uri=~"/api/n-plus-one-practice/(bad|good)"}[5m])
+)
+```
 
-Metrics show server behavior as numbers.
+Why this matters:
+
+```text
+Postman can show that the API works.
+Prometheus shows whether the API is internally expensive.
+```
+
+This is the core observability lesson:
+
+```text
+API success is not enough.
+Backend quality must include hidden internal cost.
+```
+
+## Actual Experiment Result
+
+This is the key flow observed in this experiment:
+
+```text
+1. ChatLog list is queried first.
+   select * from practice_chat_log
+
+2. Five ChatLog objects are loaded into memory.
+   But user is LAZY, so PracticeUser is not loaded yet.
+
+3. During DTO conversion, userName is needed.
+   chatLog.getUser().getName()
+
+4. At that moment, Hibernate loads each ChatLog's User from DB one by one.
+   select * from practice_user where id=?
+   select * from practice_user where id=?
+   select * from practice_user where id=?
+   ...
+```
+
+In this experiment:
+
+```text
+ChatLog list SELECT 1 time
++ User SELECT N times
+= N+1
+```
+
+So the problem is not that the Postman response is broken. The response can look perfectly normal.
+
+The problem is hidden in the Hibernate SQL log.
+
+The point is not to repeat generic JPA performance notes. The point is to see the hidden SQL cost behind a normal-looking API response.
+
+## What I Tested
+
+This experiment checks this exact situation:
+
+```text
+/bad
+→ the response body looks normal
+→ Hibernate first loads chat logs
+→ then LAZY user access triggers repeated user SELECT queries
+→ ChatLog list SELECT 1 time + User SELECT N times
+
+/good
+→ the response body looks similar
+→ join fetch loads chat logs and users together
+→ repeated user SELECT queries are reduced
+```
+
+N+1 is dangerous because the API can be functionally correct while SQL quietly explodes.
+
+## Practice APIs
+
+```text
+POST /api/n-plus-one-practice/sample-data
+GET  /api/n-plus-one-practice/bad
+GET  /api/n-plus-one-practice/good
+```
+
+## Postman Setup
+
+Run the server:
+
+```powershell
+./gradlew bootRun
+```
+
+Health check:
 
 ```http
-GET /actuator/metrics/practice.api.requests
-GET /actuator/metrics/practice.api.request.duration
-GET /actuator/metrics/practice.api.errors
-GET /actuator/prometheus
-```
-
-Custom metrics:
-
-```text
-practice.api.requests
-practice.api.request.duration
-practice.api.errors
-```
-
-These are used to check request count, processing time, and error count.
-
-### 2. Logs
-
-Logs show what happened during the request.
-
-Example:
-
-```text
-request start traceId=demo-trace-001 method=POST uri=/api/chat thread=...
-request end traceId=demo-trace-001 method=POST uri=/api/chat status=200 outcome=SUCCESS elapsedMs=...
-```
-
-The same `traceId` appears in the console log.
-
-### 3. Traces
-
-This project uses a simple manual `traceId` practice.
-
-```text
-Postman sends X-Trace-Id
-→ Interceptor stores it
-→ Service reads it
-→ Response includes it
-→ Logs include it
-→ Metrics change after the request
-```
-
-This is not full distributed tracing yet. Later this can be extended with Micrometer Tracing, OpenTelemetry, Zipkin, Jaeger, or Grafana Tempo.
-
-## Main APIs
-
-### Chat API
-
-```http
-POST http://localhost:8080/api/chat
-Content-Type: application/json
-X-Trace-Id: demo-trace-001
-```
-
-Body:
-
-```json
-{
-  "userId": "u01",
-  "message": "observability test",
-  "model": "mock"
-}
+GET http://localhost:8080/actuator/health
 ```
 
 Expected response:
 
 ```json
 {
-  "userId": "u01",
-  "model": "mock",
-  "answer": "...",
-  "thread": "VirtualThread[...]",
-  "traceId": "demo-trace-001"
+  "status": "UP"
 }
 ```
 
-### Validation Error Practice
+## What Postman Should Show
 
-Send an invalid body:
+### 1. Create Sample Data
 
-```json
-{
-  "userId": "",
-  "message": "",
-  "model": ""
-}
-```
-
-Expected error response:
-
-```json
-{
-  "code": "INVALID_REQUEST",
-  "message": "Request validation failed",
-  "status": 400,
-  "path": "/api/chat",
-  "traceId": "demo-trace-error-001",
-  "fieldErrors": {
-    "userId": "userId is required",
-    "message": "message is required",
-    "model": "model is required"
-  }
-}
-```
-
-### Observability Guide API
+Request:
 
 ```http
-GET http://localhost:8080/api/observability/guide
-X-Trace-Id: demo-trace-guide-001
+POST http://localhost:8080/api/n-plus-one-practice/sample-data
+X-Trace-Id: n-plus-one-sample-001
 ```
 
-## Postman Practice Set
-
-Create and save these requests in Postman:
+This creates:
 
 ```text
-1. POST /api/chat - normal request
-2. POST /api/chat - validation error request
-3. GET /actuator/metrics/practice.api.requests
-4. GET /actuator/metrics/practice.api.request.duration
-5. GET /actuator/metrics/practice.api.errors
-6. GET /actuator/prometheus
+5 PracticeUser rows
+5 PracticeChatLog rows
+Each chat log points to one user with @ManyToOne(fetch = LAZY)
 ```
 
-Run them repeatedly and compare:
+Expected response shape:
+
+```json
+{
+  "mode": "sample-data",
+  "message": "created 5 users and 5 chat logs",
+  "count": 5,
+  "traceId": "n-plus-one-sample-001",
+  "chatLogs": [
+    {
+      "chatLogId": 1,
+      "message": "message from user-1",
+      "userId": 1,
+      "userName": "user-1"
+    }
+  ]
+}
+```
+
+### 2. Bad Query
+
+Request:
+
+```http
+GET http://localhost:8080/api/n-plus-one-practice/bad
+X-Trace-Id: n-plus-one-bad-001
+```
+
+What this does:
 
 ```text
-Before request → after request
-Normal request → error request
-prompt A → prompt B
-model A → model B
-userId A → userId B
+1. practiceChatLogRepository.findAll()
+2. Response DTO calls chatLog.getUser().getName()
+3. LAZY user is accessed one by one
+4. Hibernate can run repeated SELECT queries
 ```
 
-The important habit is to ask:
+Expected Postman result:
 
 ```text
-What changed in the response?
-What changed in the logs?
-What changed in the metrics?
-Can I follow the same traceId?
+The response body looks normal.
+It returns chat logs with userName.
 ```
 
-## How To Run
+Expected Hibernate SQL log:
 
-```powershell
-./gradlew bootRun
+```sql
+select ... from practice_chat_log ...
+select ... from practice_user where id=?
+select ... from practice_user where id=?
+select ... from practice_user where id=?
+select ... from practice_user where id=?
+select ... from practice_user where id=?
 ```
 
-Then test with Postman.
+Key evidence from `/bad`:
 
-## One-Line Summary
+```text
+/bad
+→ API response looks correct
+→ repeated SELECT queries appear in Hibernate SQL logs
+→ the problem is not the response body
+→ the problem is hidden DB query cost
+```
 
-This project practices AI-server-style API observability by sending Postman requests and connecting response bodies, error responses, logs, metrics, and traceId-based traces into one feedback loop.
+### 3. Good Query
+
+Request:
+
+```http
+GET http://localhost:8080/api/n-plus-one-practice/good
+X-Trace-Id: n-plus-one-good-001
+```
+
+What this does:
+
+```text
+1. practiceChatLogRepository.findAllWithUser()
+2. JPQL join fetch loads PracticeChatLog and PracticeUser together
+3. Response DTO can read userName without repeated user SELECT queries
+```
+
+Expected Postman result:
+
+```text
+The response body looks similar to /bad.
+It still returns chat logs with userName.
+```
+
+Expected Hibernate SQL log:
+
+```sql
+select ...
+from practice_chat_log ...
+join practice_user ...
+```
+
+Key evidence from `/good`:
+
+```text
+/good
+→ API response looks similar to /bad
+→ Hibernate SQL log shows a join query
+→ repeated user SELECT queries are reduced
+→ fetch join fixed the hidden query cost
+```
+
+## Result
+
+```text
+Postman confirms the API response.
+Hibernate SQL logs reveal the hidden DB query cost.
+traceId connects the Postman request to the server log.
+```
+
+The practical lesson:
+
+```text
+A correct API response does not guarantee an efficient API.
+N+1 must be checked through Hibernate SQL logs, not only through Postman response bodies.
+```
+
+## Why This Matters
+
+This is part of the backend feedback loop:
+
+```text
+Postman response
+→ traceId logs
+→ Hibernate SQL logs
+→ repeated SELECT detection
+→ fetch join comparison
+```
+
+The goal is to understand JPA performance by observing real request/response behavior and actual SQL execution.
+
+## Prometheus and Grafana Check
+
+This branch also exposes SQL statement count as application metrics.
+
+```text
+practice.api.sql.statements
+practice.api.sql.statements.per.request
+```
+
+Prometheus converts dots to underscores:
+
+```promql
+practice_api_sql_statements_total
+practice_api_sql_statements_per_request_count
+practice_api_sql_statements_per_request_sum
+```
+
+Compare `/bad` and `/good` with these queries:
+
+```promql
+increase(practice_api_sql_statements_total{uri="/api/n-plus-one-practice/bad"}[5m])
+```
+
+```promql
+increase(practice_api_sql_statements_total{uri="/api/n-plus-one-practice/good"}[5m])
+```
+
+Average SQL statements per request:
+
+```promql
+rate(practice_api_sql_statements_per_request_sum{uri="/api/n-plus-one-practice/bad"}[5m])
+/
+rate(practice_api_sql_statements_per_request_count{uri="/api/n-plus-one-practice/bad"}[5m])
+```
+
+```promql
+rate(practice_api_sql_statements_per_request_sum{uri="/api/n-plus-one-practice/good"}[5m])
+/
+rate(practice_api_sql_statements_per_request_count{uri="/api/n-plus-one-practice/good"}[5m])
+```
+
+The point is:
+
+```text
+/bad  -> one HTTP request, many SQL statements
+/good -> one HTTP request, fewer SQL statements
+```
+
+## Prometheus Evidence: Bad N+1 vs Good Fetch Join
+
+![N+1 bad vs good SQL statement metric](docs/evidence/n-plus-one/2026-09-17-n-plus-one-bad-vs-good-prometheus.png)
+
+Query used:
+
+```promql
+sum by(uri) (
+  increase(practice_api_sql_statements_total{uri=~"/api/n-plus-one-practice/(bad|good)"}[5m])
+)
+```
+
+Observed result:
+
+```text
+bad (N+1) is higher.
+-> The HTTP request itself happens once.
+-> But many SQL statements run inside that single request.
+-> N+1 observability succeeded.
+
+good (fetch join) is lower.
+-> Fetch join reduces SQL statement count.
+-> The improvement is visible in Prometheus.
+```
+
+This is the important backend observability lesson:
+
+```text
+The response body can look correct in both cases.
+The real difference is hidden internal cost.
+SQL count metrics make that cost visible.
+```
