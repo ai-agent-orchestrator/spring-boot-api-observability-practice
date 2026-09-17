@@ -94,6 +94,23 @@ public class AgentMetricRecorder {
                 .increment();
     }
 
+    public void recordPolicyCheck(String decision, String policyName) {
+        Counter.builder("agent.policy.check")
+                .description("Total number of guardrail-ready agent policy checks")
+                .tag("decision", normalize(decision))
+                .tag("policy", normalize(policyName))
+                .register(meterRegistry)
+                .increment();
+    }
+
+    public void recordPolicyAllowed(String policyName) {
+        Counter.builder("agent.policy.allowed")
+                .description("Total number of allowed agent policy checks")
+                .tag("policy", normalize(policyName))
+                .register(meterRegistry)
+                .increment();
+    }
+
     public void recordPolicyViolation(String policyName) {
         Counter.builder("agent.policy.violation")
                 .description("Total number of simulated agent policy violations")

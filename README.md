@@ -673,3 +673,111 @@ Detect suspicious agent behavior early
 -> record the incident
 -> update policy and metrics
 ```
+
+## Guardrail-Ready Policy Checker
+
+This branch also adds a mock policy checker that can later be replaced with a NVIDIA NeMo Guardrails adapter.
+
+Current flow:
+
+```text
+POST /api/agent/policy-check
+-> AgentPolicyCheckService
+-> AgentMetricRecorder
+-> Prometheus / Grafana
+```
+
+Practice API:
+
+```http
+POST /api/agent/policy-check
+```
+
+Safe request:
+
+```json
+{
+  "userInput": "search public policy documents",
+  "toolName": "search"
+}
+```
+
+Expected decision:
+
+```text
+ALLOWED
+```
+
+Dangerous request:
+
+```json
+{
+  "userInput": "delete all customer records",
+  "toolName": "database"
+}
+```
+
+Expected decision:
+
+```text
+DENIED
+```
+
+Sensitive action:
+
+```json
+{
+  "userInput": "send customer report by email",
+  "toolName": "email"
+}
+```
+
+Expected decision:
+
+```text
+APPROVAL_REQUIRED
+```
+
+Policy-check metrics:
+
+```text
+agent.policy.check
+agent.policy.allowed
+agent.policy.violation
+agent.approval.required
+```
+
+Prometheus names:
+
+```promql
+agent_policy_check_total
+agent_policy_allowed_total
+agent_policy_violation_total
+agent_approval_required_total
+```
+
+PromQL examples:
+
+```promql
+sum by (decision, policy) (
+  increase(agent_policy_check_total[5m])
+)
+```
+
+```promql
+increase(agent_policy_violation_total{policy="dangerous_database_operation"}[5m])
+```
+
+```promql
+increase(agent_approval_required_total{reason="sensitive_action"}[5m])
+```
+
+The replacement point for October:
+
+```text
+Current:
+AgentPolicyCheckService -> mock if-based policy rules
+
+Future:
+AgentPolicyCheckService -> NeMo Guardrails adapter
+```
