@@ -408,3 +408,75 @@ The point is:
 API success is not enough.
 Agent behavior, retries, tool failures, token cost, approvals, and policy violations must be observable.
 ```
+
+## Suspicious Agent Behavior Signals
+
+Single metrics are useful, but agent security becomes more meaningful when related signals are interpreted together.
+
+```text
+retry
+-> the agent is repeating a failed or blocked behavior
+
+policy violation
+-> the agent attempted an action that violates a policy
+
+tool error
+-> a tool call failed during agent execution
+```
+
+The important pattern is not one failure. The important pattern is repeated behavior around a risky action.
+
+```text
+retry only
+-> unstable tool, external API failure, or temporary failure
+
+policy violation only
+-> dangerous or disallowed request appeared
+
+retry + policy violation
+-> the agent may be repeatedly trying a risky or blocked action
+
+retry + tool error
+-> the agent may be repeatedly calling an unstable tool
+
+tool error + retry + external API call
+-> the agent may be repeatedly trying to recover through an external dependency
+```
+
+PromQL examples:
+
+```promql
+increase(agent_retry_count_total[5m])
+```
+
+```promql
+increase(agent_policy_violation_total[5m])
+```
+
+```promql
+increase(agent_tool_errors_total[5m])
+```
+
+Grafana panel idea:
+
+```text
+Panel title: Suspicious Agent Behavior
+Query A: increase(agent_retry_count_total[5m])
+Query B: increase(agent_policy_violation_total[5m])
+Query C: increase(agent_tool_errors_total[5m])
+```
+
+Alert candidate:
+
+```promql
+increase(agent_policy_violation_total[5m]) >= 1
+and
+increase(agent_retry_count_total[5m]) >= 3
+```
+
+The point is:
+
+```text
+AI agent security is not only about the final answer.
+It is also about what the agent repeatedly tried to do when it was blocked.
+```
