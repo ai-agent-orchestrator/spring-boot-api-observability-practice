@@ -288,3 +288,36 @@ The point is:
 /bad  -> one HTTP request, many SQL statements
 /good -> one HTTP request, fewer SQL statements
 ```
+
+## Prometheus Evidence: Bad N+1 vs Good Fetch Join
+
+![N+1 bad vs good SQL statement metric](docs/evidence/n-plus-one/2026-09-17-n-plus-one-bad-vs-good-prometheus.png)
+
+Query used:
+
+```promql
+sum by(uri) (
+  increase(practice_api_sql_statements_total{uri=~"/api/n-plus-one-practice/(bad|good)"}[5m])
+)
+```
+
+Observed result:
+
+```text
+bad (N+1) is higher.
+-> The HTTP request itself happens once.
+-> But many SQL statements run inside that single request.
+-> N+1 observability succeeded.
+
+good (fetch join) is lower.
+-> Fetch join reduces SQL statement count.
+-> The improvement is visible in Prometheus.
+```
+
+This is the important backend observability lesson:
+
+```text
+The response body can look correct in both cases.
+The real difference is hidden internal cost.
+SQL count metrics make that cost visible.
+```
