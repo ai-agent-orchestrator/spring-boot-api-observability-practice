@@ -545,3 +545,78 @@ The point is:
 AI agent security is not only about the final answer.
 It is also about what the agent repeatedly tried to do when it was blocked.
 ```
+
+## Agent Risk Pattern Experiment APIs
+
+This branch provides scenario APIs that intentionally emit multiple related metrics together.
+
+```http
+POST /api/agent/risk-patterns/policy-violation-retry
+POST /api/agent/risk-patterns/tool-error-retry
+POST /api/agent/risk-patterns/external-api-policy-violation
+POST /api/agent/risk-patterns/approval-required-retry
+```
+
+These APIs are designed for Prometheus and Grafana experiments.
+
+```text
+policy-violation-retry
+-> agent_policy_violation_total
+-> agent_retry_count_total
+-> agent_tool_calls_total
+
+tool-error-retry
+-> agent_tool_errors_total
+-> agent_retry_count_total
+-> agent_tool_calls_total
+
+external-api-policy-violation
+-> agent_external_api_calls_total
+-> agent_policy_violation_total
+-> agent_tool_calls_total
+
+approval-required-retry
+-> agent_approval_required_total
+-> agent_retry_count_total
+-> agent_tool_calls_total
+```
+
+Recommended Prometheus queries:
+
+```promql
+increase(agent_retry_count_total[5m])
+```
+
+```promql
+increase(agent_policy_violation_total[5m])
+```
+
+```promql
+increase(agent_tool_errors_total[5m])
+```
+
+```promql
+increase(agent_external_api_calls_total[5m])
+```
+
+```promql
+increase(agent_approval_required_total[5m])
+```
+
+Grafana panel idea:
+
+```text
+Panel title: Agent Risk Pattern Signals
+Query A: increase(agent_retry_count_total[5m])
+Query B: increase(agent_policy_violation_total[5m])
+Query C: increase(agent_tool_errors_total[5m])
+Query D: increase(agent_external_api_calls_total[5m])
+Query E: increase(agent_approval_required_total[5m])
+```
+
+The point is:
+
+```text
+Suspicious agent behavior is not a single number.
+It is a pattern made from metric combinations.
+```
