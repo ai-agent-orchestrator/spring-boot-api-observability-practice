@@ -1,6 +1,45 @@
 # Spring Boot Observability Practice
 
-This project is a custom observability practice for Spring Boot APIs.
+This project is a custom observability practice for detecting hidden cost and suspicious behavior behind successful API responses.
+
+The main idea is simple:
+
+```text
+API success is not enough.
+The system must observe internal cost, agent behavior, security signals, and guardrail-ready risk patterns.
+```
+
+## Main Focus: Agent Behavior Detection
+
+AI agent risk is often not visible from the final answer alone.
+
+The important signal is the behavior pattern:
+
+```text
+retry + policy violation
+-> the agent may be repeatedly trying a risky or blocked action
+
+tool error + retry
+-> the agent may be repeatedly calling an unstable tool
+
+policy violation + external API call
+-> the agent may be moving from a risky request toward an external dependency
+
+approval required + retry
+-> the agent may be repeatedly approaching an action that needs human approval
+```
+
+This project treats custom metrics as an early detection layer:
+
+```text
+Detect
+-> Interpret
+-> Alert
+-> Guardrail / human approval / handling agent
+-> Policy update
+```
+
+The goal is not only to draw graphs. The goal is to build the metric foundation for a cost-aware and guardrail-ready AI backend.
 
 ```text
 Spring Boot Observability Practice
@@ -9,7 +48,33 @@ Spring Boot Observability Practice
 -> to Security/Guardrail metrics
 ```
 
-The goal is to observe internal cost and behavior behind successful API responses.
+Core metric groups:
+
+```text
+Internal cost
+-> SQL statement count, response time, request count
+
+Agent behavior
+-> tool calls, retries, token cost, external API calls, DB writes
+
+Security / guardrail signals
+-> policy violations, approval-required events, tool errors, suspicious metric combinations
+```
+
+PromQL example for suspicious behavior:
+
+```promql
+increase(agent_policy_violation_total[5m]) >= 1
+and
+increase(agent_retry_count_total[5m]) >= 3
+```
+
+The practical question this project asks:
+
+```text
+The API succeeded.
+But was it cheap, safe, stable, and policy-compliant?
+```
 
 ## JPA N+1 Practice
 
