@@ -41,6 +41,15 @@ Detect
 
 The goal is not only to draw graphs. The goal is to build the metric foundation for a cost-aware and guardrail-ready AI backend.
 
+Planned October extension:
+
+```text
+Learn NVIDIA NeMo Guardrails
+-> map each agent behavior pattern to a customized guardrail
+-> connect detection metrics to guardrail actions
+-> test detect -> block / approve / escalate flows
+```
+
 ```text
 Spring Boot Observability Practice
 -> from JPA N+1 metrics
@@ -619,4 +628,48 @@ The point is:
 ```text
 Suspicious agent behavior is not a single number.
 It is a pattern made from metric combinations.
+```
+
+## Planned NeMo Guardrails Extension
+
+This project does not integrate NVIDIA NeMo Guardrails yet.
+
+The current goal is to prepare the detection layer first:
+
+```text
+agent behavior
+-> custom metric
+-> Prometheus query
+-> Grafana panel / alert candidate
+-> future customized guardrail
+```
+
+Planned October work:
+
+```text
+policy-violation-retry
+-> detect repeated blocked behavior
+-> custom guardrail: stop repeated risky attempts and require human review
+
+tool-error-retry
+-> detect repeated failed tool calls
+-> custom guardrail: limit retries and route to fallback handling
+
+external-api-policy-violation
+-> detect risky behavior moving toward an external dependency
+-> custom guardrail: block external call or require approval before outbound access
+
+approval-required-retry
+-> detect repeated attempts near a human approval boundary
+-> custom guardrail: freeze action until explicit approval is recorded
+```
+
+The long-term direction:
+
+```text
+Detect suspicious agent behavior early
+-> apply customized guardrails
+-> escalate to human or handling AI
+-> record the incident
+-> update policy and metrics
 ```
