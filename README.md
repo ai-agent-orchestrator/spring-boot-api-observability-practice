@@ -1,226 +1,148 @@
-# Spring Boot API Observability Practice
+# Spring Boot JPA N+1 Observability Practice
 
-## Project Focus
-
-This project is focused on observing an API server through the three core pillars of observability:
+This repository is a hands-on Spring Boot experiment that proves one backend lesson:
 
 ```text
-Metrics = request count, response time, error count
-Logs    = request start/end/error records
-Traces  = one request can be followed with the same traceId
+An API response can look correct in Postman,
+but the database can still be doing too much hidden work.
 ```
 
-The main goal is not to make a simple REST API and stop there. The goal is to send requests with Postman, read the server feedback, and understand why the server behaves a certain way.
+## Main Result
 
-This project is designed for AI server practice. In an AI API server, we need to observe questions like:
-
-- Did response time increase when the prompt changed?
-- Did the error rate increase when the model changed?
-- Does a specific `userId` fail more often?
-- Can token usage be observed later?
-- Is the bottleneck inside the Spring server, DB, or external LLM API call?
-- Can the same `traceId` be followed from response to logs?
-
-## Feedback Loop
-
-The practice flow is:
+Postman was used to call two endpoints:
 
 ```text
-Run Spring Boot server
-→ Send GET/POST requests with Postman
-→ Add Headers such as X-Trace-Id
-→ Send JSON RequestBody
-→ Check JSON ResponseBody
-→ Check JSON ErrorResponse
-→ Read logs with the same traceId
-→ Check Actuator metrics
-→ Infer what happened inside the server
+GET /api/n-plus-one-practice/bad
+GET /api/n-plus-one-practice/good
 ```
 
-This is the beginning of backend feedback-driven development. The server is not only coded; it is tested, observed, and improved through repeated API requests.
+Both endpoints return a normal-looking API response.
 
-## Mermaid Flowchart
+But Prometheus shows a different internal cost:
 
-```mermaid
-flowchart TB
-    A["Postman / Frontend / AI Agent"] --> B["HTTP Request"]
-    B --> C["TraceIdInterceptor"]
-    C --> D["preHandle"]
-    D --> E["Create or read X-Trace-Id"]
-    E --> F["Save startTime"]
-    F --> G["REST Controller"]
-    G --> H["Service"]
-    H --> I["Response DTO"]
-    H --> J["Exception"]
-    J --> K["ApiExceptionHandler"]
-    K --> L["ErrorResponse"]
-    I --> M["afterCompletion"]
-    L --> M
-    M --> N["Logs with traceId"]
-    M --> O["Metrics: count / duration / errors"]
-    N --> P["Reason about one request"]
-    O --> P
+![N+1 bad vs good SQL statement metric](docs/evidence/n-plus-one/2026-09-17-n-plus-one-bad-vs-good-prometheus.png)
+
+```text
+/bad
+-> one HTTP request
+-> ChatLog list query
+-> LAZY User access during DTO conversion
+-> repeated User SELECT queries
+-> N+1 detected
+
+/good
+-> one HTTP request
+-> fetch join loads ChatLog and User together
+-> repeated User SELECT queries reduced
+-> hidden SQL cost improved
 ```
 
-## What To Observe
+## What I Actually Tested
 
-### 1. Metrics
+The experiment created sample data:
 
-Metrics show server behavior as numbers.
+```text
+5 PracticeUser rows
+5 PracticeChatLog rows
+Each ChatLog has @ManyToOne(fetch = LAZY) PracticeUser
+```
+
+Then `/bad` used the normal lazy-loading path:
+
+```text
+practiceChatLogRepository.findAll()
+-> DTO conversion calls chatLog.getUser().getName()
+-> Hibernate loads each user one by one
+```
+
+Expected SQL pattern:
+
+```sql
+select ... from practice_chat_log ...
+select ... from practice_user where id=?
+select ... from practice_user where id=?
+select ... from practice_user where id=?
+...
+```
+
+Then `/good` used fetch join:
+
+```text
+practiceChatLogRepository.findAllWithUser()
+-> join fetch loads ChatLog and User together
+-> DTO conversion does not trigger repeated user SELECT queries
+```
+
+Expected SQL pattern:
+
+```sql
+select ...
+from practice_chat_log ...
+join practice_user ...
+```
+
+## Prometheus Query
+
+```promql
+sum by(uri) (
+  increase(practice_api_sql_statements_total{uri=~"/api/n-plus-one-practice/(bad|good)"}[5m])
+)
+```
+
+## Why This Matters
+
+Postman proves the API works.
+
+Prometheus proves whether the API is internally expensive.
+
+```text
+API success is not enough.
+Backend observability must expose hidden internal cost.
+```
+
+## Practice Flow
+
+```text
+1. Create sample data with Postman
+2. Call /bad
+3. Check Hibernate SQL logs
+4. Check Prometheus SQL statement metric
+5. Call /good
+6. Compare SQL statement count
+```
+
+## APIs
 
 ```http
-GET /actuator/metrics/practice.api.requests
-GET /actuator/metrics/practice.api.request.duration
-GET /actuator/metrics/practice.api.errors
-GET /actuator/prometheus
+POST /api/n-plus-one-practice/sample-data
+GET  /api/n-plus-one-practice/bad
+GET  /api/n-plus-one-practice/good
 ```
 
-Custom metrics:
-
-```text
-practice.api.requests
-practice.api.request.duration
-practice.api.errors
-```
-
-These are used to check request count, processing time, and error count.
-
-### 2. Logs
-
-Logs show what happened during the request.
-
-Example:
-
-```text
-request start traceId=demo-trace-001 method=POST uri=/api/chat thread=...
-request end traceId=demo-trace-001 method=POST uri=/api/chat status=200 outcome=SUCCESS elapsedMs=...
-```
-
-The same `traceId` appears in the console log.
-
-### 3. Traces
-
-This project uses a simple manual `traceId` practice.
-
-```text
-Postman sends X-Trace-Id
-→ Interceptor stores it
-→ Service reads it
-→ Response includes it
-→ Logs include it
-→ Metrics change after the request
-```
-
-This is not full distributed tracing yet. Later this can be extended with Micrometer Tracing, OpenTelemetry, Zipkin, Jaeger, or Grafana Tempo.
-
-## Main APIs
-
-### Chat API
-
-```http
-POST http://localhost:8080/api/chat
-Content-Type: application/json
-X-Trace-Id: demo-trace-001
-```
-
-Body:
-
-```json
-{
-  "userId": "u01",
-  "message": "observability test",
-  "model": "mock"
-}
-```
-
-Expected response:
-
-```json
-{
-  "userId": "u01",
-  "model": "mock",
-  "answer": "...",
-  "thread": "VirtualThread[...]",
-  "traceId": "demo-trace-001"
-}
-```
-
-### Validation Error Practice
-
-Send an invalid body:
-
-```json
-{
-  "userId": "",
-  "message": "",
-  "model": ""
-}
-```
-
-Expected error response:
-
-```json
-{
-  "code": "INVALID_REQUEST",
-  "message": "Request validation failed",
-  "status": 400,
-  "path": "/api/chat",
-  "traceId": "demo-trace-error-001",
-  "fieldErrors": {
-    "userId": "userId is required",
-    "message": "message is required",
-    "model": "model is required"
-  }
-}
-```
-
-### Observability Guide API
-
-```http
-GET http://localhost:8080/api/observability/guide
-X-Trace-Id: demo-trace-guide-001
-```
-
-## Postman Practice Set
-
-Create and save these requests in Postman:
-
-```text
-1. POST /api/chat - normal request
-2. POST /api/chat - validation error request
-3. GET /actuator/metrics/practice.api.requests
-4. GET /actuator/metrics/practice.api.request.duration
-5. GET /actuator/metrics/practice.api.errors
-6. GET /actuator/prometheus
-```
-
-Run them repeatedly and compare:
-
-```text
-Before request → after request
-Normal request → error request
-prompt A → prompt B
-model A → model B
-userId A → userId B
-```
-
-The important habit is to ask:
-
-```text
-What changed in the response?
-What changed in the logs?
-What changed in the metrics?
-Can I follow the same traceId?
-```
-
-## How To Run
+## Run
 
 ```powershell
-./gradlew bootRun
+.\gradlew.bat bootRun
 ```
 
-Then test with Postman.
+Health check:
 
-## One-Line Summary
+```http
+GET http://localhost:8080/actuator/health
+```
 
-This project practices AI-server-style API observability by sending Postman requests and connecting response bodies, error responses, logs, metrics, and traceId-based traces into one feedback loop.
+Prometheus endpoint:
+
+```http
+GET http://localhost:8080/actuator/prometheus
+```
+
+## Portfolio Summary
+
+```text
+This project demonstrates JPA N+1 detection with real request testing.
+Postman shows the response.
+Hibernate SQL logs reveal repeated queries.
+Prometheus turns the hidden SQL cost into visible metrics.
+Fetch join reduces that cost, and the improvement is measurable.
+```
